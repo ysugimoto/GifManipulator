@@ -513,11 +513,10 @@ class GifManipulator
 	 */
 	protected function parseGraphicControlExtension()
 	{
-		//$this->parseNetscapeApplicationExtension($binary);
 		$gce = new stdClass;
-		$gce->extensionIntroducer = $this->getBytes(1);//substr($binary, 0, 1);
-		$gce->graphicControlLabel = $this->getBytes(1);//substr($binary, 1, 1);
-		$gce->blockSize           = $this->getBytes(1);//substr($binary, 2, 1);
+		$gce->extensionIntroducer = $this->getBytes(1);
+		$gce->graphicControlLabel = $this->getBytes(1);
+		$gce->blockSize           = $this->getBytes(1);
 		
 		$bits = $this->getBits();
 		$gce->reserved         = bindec(substr($bits, 0, 3));
@@ -629,8 +628,6 @@ class GifManipulator
 			}
 			
 			$this->imageDescriptors[] = $img;
-			
-			//$img->body = rtrim(substr($binary, $pointer), "\x3b");
 		}
 		while ( $this->pointer < $fileSize );
 		
