@@ -236,14 +236,14 @@ class GifManipulator
 		list(, $this->logicalDescriptor->width)  = unpack("v", $this->getBytes(2));
 		list(, $this->logicalDescriptor->height) = unpack("v", $this->getBytes(2));
 		
-		$bits = $this->getBits();
-		$this->logicalDescriptor->colorTableFlag  = bindec(substr($bits, 0, 1));
-		$this->logicalDescriptor->colorResolution = bindec(substr($bits, 1, 3));
-		$this->logicalDescriptor->sortFlag        = bindec(substr($bits, 4, 1));
-		$this->logicalDescriptor->colorTableSize  = bindec(substr($bits, 5));
+		$byte = ord($this->getBytes(1));
+		$this->logicalDescriptor->colorTableFlag  = (( $byte & 0x80 ) >> 7);
+		$this->logicalDescriptor->colorResolution = (( $byte & 0x70 ) >> 4);
+		$this->logicalDescriptor->sortFlag        = (( $byte & 0x08 ) >> 3);
+		$this->logicalDescriptor->colorTableSize  =  ( $byte & 0x07 );
 		
-		$this->logicalDescriptor->backgroundColorIndex = (int)ord($this->getBytes(1));
-		$this->logicalDescriptor->pixelAspectRatio     = (int)ord($this->getBytes(1));
+		$this->logicalDescriptor->backgroundColorIndex = ord($this->getBytes(1));
+		$this->logicalDescriptor->pixelAspectRatio     = ord($this->getBytes(1));
 		
 		if ( $this->logicalDescriptor->colorTableFlag > 0 )
 		{
@@ -450,9 +450,9 @@ class GifManipulator
 		}
 		$data = new stdClass;
 		$data->dataSubBlockSize = $size;
-		$bit                    = $this->getBits();
-		$data->reserved         = bindec(substr($bit, 0, 5));
-		$data->extensionCode    = bindec(substr($bit, 5));
+		$byte                   = ord($this->getBytes(1));
+		$data->reserved         = (( $byte & 0xF8 ) >> 3);
+		$data->extensionCode    =  ( $byte & 0x07 );
 		
 		if ( $data->extensionCode == 1 )
 		{
@@ -518,11 +518,11 @@ class GifManipulator
 		$gce->graphicControlLabel = $this->getBytes(1);
 		$gce->blockSize           = $this->getBytes(1);
 		
-		$bits = $this->getBits();
-		$gce->reserved         = bindec(substr($bits, 0, 3));
-		$gce->disposalMethod   = bindec(substr($bits, 3, 3));
-		$gce->userInputFlag    = bindec(substr($bits, 6, 1));
-		$gce->transparencyFlag = bindec(substr($bits, 7));
+		$byte = ord($this->getBytes(1));
+		$gce->reserved         = (( $byte & 0xE0 ) >> 5);
+		$gce->disposalMethod   = (( $byte & 0x1C ) >> 2);
+		$gce->userInputFlag    = (( $byte & 0x02 ) >> 1);
+		$gce->transparencyFlag =  ( $byte & 0x01 );
 		
 		list(, $gce->delayTime) = unpack("v", $this->getBytes(2));
 		$gce->transparencyIndex = ord($this->getBytes(1));
@@ -603,12 +603,12 @@ class GifManipulator
 			list(, $img->imageWidth)        = unpack("v", $this->getBytes(2));
 			list(, $img->imageHeight)       = unpack("v", $this->getBytes(2));
 			
-			$bits = $this->getBits();
-			$img->localColorTable     = bindec(substr($bits, 0, 1));
-			$img->interlaceFlag       = bindec(substr($bits, 1, 1));
-			$img->sortFlag            = bindec(substr($bits, 2, 1));
-			$img->reserved            = bindec(substr($bits, 3, 2));
-			$img->localColorTableSize = bindec(substr($bits, 5));
+			$byte = ord($this->getBytes(1));
+			$img->localColorTable     = (( $byte & 0x80 ) >> 7);
+			$img->interlaceFlag       = (( $byte & 0x40 ) >> 6);
+			$img->sortFlag            = (( $byte & 0x20 ) >> 5);
+			$img->reserved            = (( $byte & 0x18 ) >> 3);
+			$img->localColorTableSize =  ( $byte & 0x07 );
 			$img->localColors         = array();
 			
 			if ( $img->localColorTable > 0 )
@@ -665,24 +665,6 @@ class GifManipulator
 	
 	
 	/**
-	 * Get Bits from 1 byte string
-	 * 
-	 * @access protected
-	 * @return string $bits
-	 */
-	protected function getBits()
-	{
-		$hex  = bin2hex($this->getBytes(1));
-		$bits = (string)base_convert($hex, 16, 2);
-		
-		return str_pad($bits, 8, "0", STR_PAD_LEFT);
-	}
-	
-	
-	// ==============================================================
-	
-	
-	/**
 	 * Build Logical Screen Descriptor
 	 * 
 	 * @access protected
@@ -694,11 +676,12 @@ class GifManipulator
 		$bin .= pack('v*', $this->logicalDescriptor->width);
 		$bin .= pack('v*', $this->logicalDescriptor->height);
 		
-		$bits = decbin($this->logicalDescriptor->colorTableFlag)
-		        . str_pad(decbin($this->logicalDescriptor->colorResolution), 3, "0", STR_PAD_LEFT)
-		        . decbin($this->logicalDescriptor->sortFlag)
-		        . str_pad(decbin($this->logicalDescriptor->colorTableSize), 3, "0", STR_PAD_LEFT);
-		$bin .= pack("H*", str_pad(base_convert($bits, 2, 16), 2, "0", STR_PAD_LEFT));
+		$bin .= chr(
+		           ($this->logicalDescriptor->colorTableFlag  << 7) |
+		           ($this->logicalDescriptor->colorResolution << 4) |
+		           ($this->logicalDescriptor->sortFlag        << 3) |
+		           ($this->logicalDescriptor->colorTableSize)
+		        );
 		
 		$bin .= chr($this->logicalDescriptor->backgroundColorIndex);
 		$bin .= chr($this->logicalDescriptor->pixelAspectRatio);
@@ -741,9 +724,10 @@ class GifManipulator
 		foreach ( $this->netscapeExtension->dataSubBlock as $subBlock )
 		{
 			$bin .= $subBlock->dataSubBlockSize;
-			$bit    = str_pad(decbin($subBlock->reserved), 5, "0", STR_PAD_LEFT)
-			          . str_pad(decbin($subBlock->extensionCode), 3, "0", STR_PAD_LEFT);
-			$bin .= pack("H*", str_pad(base_convert($bit, 2, 16), 2, "0", STR_PAD_LEFT));
+			$bin .= chr(
+			          ($subBlock->reserved      << 3) |
+			          ($subBlock->extensionCode)
+			        );
 			
 			if ( $subBlock->extensionCode == 1 )
 			{
@@ -777,11 +761,12 @@ class GifManipulator
 		$bin .= $imageDescriptor->graphicControlExtension->graphicControlLabel;
 		$bin .= $imageDescriptor->graphicControlExtension->blockSize;
 		
-		$bits = str_pad(decbin($imageDescriptor->graphicControlExtension->reserved), 3, "0", STR_PAD_LEFT)
-		        . str_pad(decbin($imageDescriptor->graphicControlExtension->disposalMethod), 3, "0", STR_PAD_LEFT)
-		        . decbin($imageDescriptor->graphicControlExtension->userInputFlag)
-		        . decbin($imageDescriptor->graphicControlExtension->transparencyFlag);
-		$bin .= pack("H*", str_pad((string)base_convert($bits, 2, 16), 2, "0", STR_PAD_LEFT));
+		$bin .= chr(
+		          ($imageDescriptor->graphicControlExtension->reserved         << 5) |
+		          ($imageDescriptor->graphicControlExtension->disposalMethod   << 2) |
+		          ($imageDescriptor->graphicControlExtension->userInputFlag    << 1) |
+		          ($imageDescriptor->graphicControlExtension->transparencyFlag)
+		        );
 		
 		$bin .= pack("v*", $imageDescriptor->graphicControlExtension->delayTime);
 		$bin .= chr($imageDescriptor->graphicControlExtension->transparencyIndex);
@@ -793,12 +778,13 @@ class GifManipulator
 		$bin .= pack("v*", $imageDescriptor->imageWidth);
 		$bin .= pack("v*", $imageDescriptor->imageHeight);
 		
-		$bits = decbin($imageDescriptor->localColorTable)
-		        . decbin($imageDescriptor->interlaceFlag)
-		        . decbin($imageDescriptor->sortFlag)
-		        . str_pad(decbin($imageDescriptor->reserved), 2, "0", STR_PAD_LEFT)
-		        . str_pad(decbin($imageDescriptor->localColorTableSize), 3, "0", STR_PAD_LEFT);
-		$bin .= pack("H*", str_pad(base_convert($bits, 2, 16), 2, "0", STR_PAD_LEFT));
+		$bin .= chr(
+		          ($imageDescriptor->localColorTable     << 7) |
+		          ($imageDescriptor->interlaceFlag       << 6) |
+		          ($imageDescriptor->sortFlag            << 5) |
+		          ($imageDescriptor->reserved            << 3) |
+		          ($imageDescriptor->localColorTableSize)
+		        );
 		
 		foreach ( $imageDescriptor->localColors as $color )
 		{
@@ -1153,5 +1139,110 @@ class GifManipulator
 		
 		$dump->bin = base64_encode($dump->bin);
 		var_dump($dump);
+	}
+	
+	
+	// ==============================================================
+	
+	
+	/**
+	 * Add image layer
+	 * 
+	 * @access public
+	 * @param  GifManipulator $image
+	 * @param  int $x
+	 * @param  int $y
+	 * @return void
+	 */
+	public function addImage(GifManipulator $image, $x = 0, $y = 0)
+	{
+		foreach ( $image->imageDescriptors as $imageDescriptor )
+		{
+			if ( count($imageDescriptor->localColors) === 0 )
+			{
+				$imageDescriptor->localColorTable     = 1;
+				$imageDescriptor->localColorTableSize = $image->logicalDescriptor->colorTableSize;
+				$imageDescriptor->sortFlag            = $image->logicalDescriptor->sortFlag;
+				$imageDescriptor->localColors         = $image->globalColors;
+			}
+			$imageDescriptor->imageLeftPosition = $x;
+			$imageDescriptor->imageTopPostion   = $y;
+			
+			$this->imageDescriptors[] = $imageDescriptor;
+		}
+	}
+	
+	
+	// ==============================================================
+	
+	
+	/**
+	 * Set animation coniguration
+	 * 
+	 * @access public
+	 * @param  int $delayTime ( ms )
+	 * @param  int $userInputFlag range(0,3)
+	 * @param  bool $loop
+	 * @return void
+	 */
+	public function setAnimation($delayTime = 1000, $userInputFlag = 0, $loop = TRUE)
+	{
+		foreach ( $this->imageDescriptors as $index => $imageDescriptor )
+		{
+			$imageDescriptor->graphicControlExtension->delayTime     = $delayTime;
+			//$imageDescriptor->graphicControlExtension->userInputFlag = $userInputFlag;
+			
+			$this->imageDescriptors[$index] = $imageDescriptor;
+		}
+		
+		// Image has Netscape extension?
+		if ( ! $this->netscapeExtension )
+		{
+			$this->netscapeExtension = new stdClass;
+			$this->netscapeExtension->extensionIntroducer            = "\x21";
+			$this->netscapeExtension->applicationExtensionLabel      = "\xFF";
+			$this->netscapeExtension->blockSize                      = "\x0B";
+			$this->netscapeExtension->applicationIdentifier          = "NETSCAPE";
+			$this->netscapeExtension->appllicationAuthenticationCode = "2.0";
+			
+			// Build Netscape Extension Data Sub Blocks
+			$data = new stdClass;
+			$data->dataSubBlockSize = "\x03";
+			$data->reserved         = 0;
+			$data->extensionCode    = 1;
+			$data->loopCount        = ( $loop ) ? 0 : 1;
+			$data->bufferingSize    = NULL;
+			
+			$this->netscapeExtension->dataSubBlock    = array($data);
+			$this->netscapeExtension->blockTerminator = "\x00";
+		}
+		else
+		{
+			$data = new stdClass;
+			$data->dataSubBlockSize = "\x03";
+			$data->reserved         = 0;
+			$data->extensionCode    = 1;
+			$data->loopCount        = ( $loop ) ? 0 : 1;
+			$data->bufferingSize    = NULL;
+			$this->netscapeExtension->dataSubBlock = array($data);
+		}
+	}
+	
+	
+	// ==============================================================
+	
+	
+	/**
+	 * Add image layer from filepath string
+	 * 
+	 * @access public
+	 * @param  string $file
+	 * @param  int $x
+	 * @param  int $y
+	 * @return void
+	 */
+	public function addImageFromFile($file, $x = 0, $y = 0)
+	{
+		$this->addImage(GifManipulator::createFromFile($file), $x, $y);
 	}
 }
