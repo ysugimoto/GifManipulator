@@ -49,7 +49,7 @@ class GifManipulator
 	/**
 	 * Image block separator
 	 * this means graphic controll extension section started
-	 * (extensionIntroducer.graphicControlLabel.blockSize)
+	 * (ExtensionIntroducer.graphicControlLabel.blockSize)
 	 * @var string
 	 */
 	const MULTIPLE_IMAGE_SEPARATOR = "\x21\xF9\x04";
@@ -61,6 +61,22 @@ class GifManipulator
 	 * @var string
 	 */
 	const NETSCAPE_EXTENSION_SEPARATOR = "\x21\xFF\x0B";
+	
+	/**
+	 * Comment Extension block separator
+	 * this means Comment Extension section started
+	 * (ExtensionIntroducer.CommentLabel)
+	 * @var string
+	 */
+	const COMMENT_EXTENSION_SEPARATOR = "\x21\xFE";
+	
+	/**
+	 * Plain Text Extension block separator
+	 * this means Plain Text Extension section started
+	 * (ExtensionIntroducer.PlainTextLabel)
+	 * @var string
+	 */
+	const PLAIN_TEXT_EXTENSION_SEPARATOR = "\x21\x01\x0C";
 	
 	/**
 	 * Image binary
@@ -110,6 +126,18 @@ class GifManipulator
 	 * @var array
 	 */
 	protected $imageDescriptors = array();
+	
+	/**
+	 * Embeded comment data in GIF image
+	 * @var array
+	 */
+	protected $commentBlockData = array();
+	
+	/**
+	 * Embeded plaing text data in GIF image
+	 * @var stdClass
+	 */
+	protected $plainTextBlockData = array();
 	
 	
 	// ==============================================================
@@ -309,14 +337,154 @@ class GifManipulator
 	
 	
 	/**
-	 * Check binary section is Netscape Extension
+	 * Check and parse other extensions
+	 *
+	 * @access protected
+	 * @return void
+	 */
+	protected function parseOtherExtensions()
+	{
+		// Case: Netscape Extension
+		if ( $this->getBytes(3, FALSE) === self::NETSCAPE_EXTENSION_SEPARATOR )
+		{
+			$this->parseNetScapeApplicationExtension();
+			$this->parseOtherExtensions(); // call recursive
+		}
+		// Case: Comment Extension
+		else if ( $this->getBytes(2, FALSE) === self::COMMENT_EXTENSION_SEPARATOR )
+		{
+			$this->parseCommentExtension();
+			$this->parseOtherExtensions(); // call recursive
+		}
+		// Case: Plain Text Extension
+		else if ( $this->getBytes(3, FALSE) === self::PLAIN_TEXT_EXTENSION_SEPARATOR )
+		{
+			$this->parsePlainTextExtension();
+			$this->parseOtherExtensions(); // call recursive
+		}
+	}
+	
+	
+	// ==============================================================
+	
+
+	/**
+	 * Pase comment extension section if defined
+	 * 
+	 * 
+	 *      7 6 5 4 3 2 1 0   Field Name                  Type
+	 *     +---------------+
+	 *  0  |               |  Extension Introducer        Byte
+	 *     +---------------+
+	 *  1  |               |  Comment Label               Byte
+	 *     +---------------+
+	 *
+	 *     +---------------+
+	 *  2  |               |  Block Size                  Byte
+	 *     +===============+
+	 *     |               |
+	 *  N  |               |  Comment Data                Data Sub-blocks
+	 *     |               |
+	 *     +===============+
+	 *
+	 *     +---------------+
+	 *  0  |               |  Block Terminator            Byte
+	 *     +---------------+
+	 *
+	 * @access protected
+	 * @return void
+	 */
+	protected function parseCommentExtension()
+	{
+		$comment = new stdClass();
+		$comment->extensionIntroducer = $this->getBytes(1);
+		$comment->commentLabel        = $this->getBytes(1);
+		$comment->commentSize         = ord($this->getBytes(1));
+
+		$comment->commentData         = $this->getBytes($comment->commentSize);
+		$comment->blockTerminator     = $this->getBytes(1);
+
+		$this->commentBlockData[] = $comment;
+	}
+	
+	// ==============================================================
+	
+	
+	/**
+	 * Pase plain text extension section if defined
+	 * 
+	 * 
+	 *      7 6 5 4 3 2 1 0   Field Name                  Type
+	 *     +---------------+
+	 *  0  |               |  Extension Introducer        Byte
+	 *     +---------------+
+	 *  1  |               |  Plain Text Label            Byte
+	 *     +---------------+
+	 *
+	 *     +---------------+
+	 *  0  |               |  Block Size                  Byte
+	 *     +---------------+
+	 *  1  |               |  Text Grid Left Position     Unsigned
+	 *     +-             -+
+	 *  2  |               |
+	 *     +---------------+
+	 *  3  |               |  Text Grid Top Position      Unsigned
+	 *     +-             -+
+	 *  4  |               |
+	 *     +---------------+
+	 *  5  |               |  Text Grid Width             Unsigned
+	 *     +-             -+
+	 *  6  |               |
+	 *     +---------------+
+	 *  7  |               |  Text Grid Height            Unsigned
+	 *     +-             -+
+	 *  8  |               |
+	 *     +---------------+
+	 *  9  |               |  Character Cell Width        Byte
+	 *     +---------------+
+	 * 10  |               |  Character Cell Height       Byte
+	 *     +---------------+
+	 * 11  |               |  Text Foreground Color Index Byte
+	 *     +---------------+
+	 * 12  |               |  Text background Color Index Byte
+	 *     +---------------+
+	 *
+	 *     +===============+
+	 *     |               |
+	 *  N  |               |  Plain Text Data             Data Sub-blocks
+	 *     |               |
+	 *     +===============+
+	 *
+	 *     +---------------+
+	 *  0  |               |  Block Terminator            Byte
+	 *     +---------------+
 	 * 
 	 * @access protected
-	 * @return bool
+	 * @return void
 	 */
-	protected function isNetscapeExtensionStarted()
+	protected function parsePlainTextExtension()
 	{
-		return ($this->getBytes(3, FALSE) === self::NETSCAPE_EXTENSION_SEPARATOR);
+		$this->plainTextBlockData = new stdClass;
+		$this->plainTextBlockData->extensionIntroducer  = $this->getBytes(1);
+		$this->plainTextBlockData->plainTextLabel       = $this->getBytes(1);
+		$this->plainTextBlockData->blockSize            = $this->getBytes(1);
+		
+		list(, $this->plainTextBlockData->textGridLeftPosition) = unpack("v", $this->getBytes(2));
+		list(, $this->plainTextBlockData->textGridTopPosition)  = unpack("v", $this->getBytes(2));
+		list(, $this->plainTextBlockData->textGridTopWidth)     = unpack("v", $this->getBytes(2));
+		list(, $this->plainTextBlockData->textGridTopHeight)    = unpack("v", $this->getBytes(2));
+		
+		$this->plainTextBlockData->characterCellWidth        = ord($this->getBytes(1));
+		$this->plainTextBlockData->characterCellHeight       = ord($this->getBytes(1));
+		$this->plainTextBlockData->textForegroundColorIndex  = ord($this->getBytes(1));
+		$this->plainTextBlockData->textBackgroundColorIndex  = ord($this->getBytes(1));
+        
+		$this->plainTextBlockData->plainTextData = "";
+		while ( ($byte = $this->getBytes(1)) !== "\x00" )
+		{
+			$this->plainTextBlockData->plainTextData .= $byte;
+		}
+		$this->plainTextBlockData->blockTerminator = $byte;
 	}
 	
 	
@@ -376,11 +544,6 @@ class GifManipulator
 	 */
 	protected function parseNetscapeApplicationExtension()
 	{
-		if ( ! $this->isNetscapeExtensionStarted() )
-		{
-			return;
-		}
-		
 		$this->netscapeExtension = new stdClass;
 		$this->netscapeExtension->extensionIntroducer            = $this->getBytes(1);
 		$this->netscapeExtension->applicationExtensionLabel      = $this->getBytes(1);
@@ -577,7 +740,12 @@ class GifManipulator
 		$fileSize  = strlen($this->bin);
 		do
 		{
-			$this->parseNetscapeApplicationExtension();
+			// parse other extension each section ended
+			if ( empty($stackBody) )
+			{
+				$this->parseOtherExtensions();
+			}
+			
 			$temp = $this->getBytes(3, FALSE);
 			if ( $temp !== self::MULTIPLE_IMAGE_SEPARATOR )
 			{
@@ -594,7 +762,7 @@ class GifManipulator
 			$img = new stdClass;
 			$img->graphicControlExtension = $this->parseGraphicControlExtension();
 			
-			$this->parseNetscapeApplicationExtension();
+			$this->parseOtherExtensions();
 			
 			$img->body = "";
 			$img->imageSeparator    = bin2hex($this->getBytes(1));
@@ -888,12 +1056,13 @@ class GifManipulator
 			// image has transparency?
 			if ( $imageDescriptor->graphicControlExtension->transparencyFlag )
 			{
-				// Use local color table if exists
-				$colors = ( count($imageDescriptor->localColors) > 0 )
-				            ? $imageDescriptor->localColors
-				            : $this->globalColors;
-				$color = $colors[$imageDescriptor->graphicControlExtension->transparencyIndex];
-				$trans = imagecolorallocate($dest, $color->red, $color->green, $color->blue);
+				$trans = imagecolorallocate($dest, 255, 255, 255);
+				//// Use local color table if exists
+                //$colors = ( isset($imageDescriptor->localColors[$imageDescriptor->graphicControlExtension->transparencyIndex]) )
+				//            ? $imageDescriptor->localColors
+				//            : $this->globalColors;
+				//$color = $colors[$imageDescriptor->graphicControlExtension->transparencyIndex];
+				//$trans = imagecolorallocate($dest, $color->red, $color->green, $color->blue);
 			}
 			else
 			{
@@ -1133,7 +1302,7 @@ class GifManipulator
 		$dump = new GifManipulator($this->bin);
 		foreach ( $dump->imageDescriptors as $key => $id )
 		{
-			$id->body = base64_encode($id->body);
+			$id->body = strlen($id->body) . ' sized binary';
 			$dump->imageDescriptors[$key] = $id;
 		}
 		
