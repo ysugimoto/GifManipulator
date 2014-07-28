@@ -344,24 +344,28 @@ class GifManipulator
 	 */
 	protected function parseOtherExtensions()
 	{
+		$continue = FALSE;
+
 		// Case: Netscape Extension
 		if ( $this->getBytes(3, FALSE) === self::NETSCAPE_EXTENSION_SEPARATOR )
 		{
 			$this->parseNetScapeApplicationExtension();
-			$this->parseOtherExtensions(); // call recursive
+			$continue = true;
 		}
 		// Case: Comment Extension
 		else if ( $this->getBytes(2, FALSE) === self::COMMENT_EXTENSION_SEPARATOR )
 		{
-			$this->parseCommentExtension();
-			$this->parseOtherExtensions(); // call recursive
+			$this->commentBlockData[] = $this->parseCommentExtension();
+			$continue = true;
 		}
 		// Case: Plain Text Extension
 		else if ( $this->getBytes(3, FALSE) === self::PLAIN_TEXT_EXTENSION_SEPARATOR )
 		{
-			$this->parsePlainTextExtension();
-			$this->parseOtherExtensions(); // call recursive
+			$this->plainTextBlockData[] = $this->parsePlainTextExtension();
+			$continue = true;
 		}
+		
+		return $continue;
 	}
 	
 	
@@ -400,11 +404,11 @@ class GifManipulator
 		$comment->extensionIntroducer = $this->getBytes(1);
 		$comment->commentLabel        = $this->getBytes(1);
 		$comment->commentSize         = ord($this->getBytes(1));
-
+		
 		$comment->commentData         = $this->getBytes($comment->commentSize);
 		$comment->blockTerminator     = $this->getBytes(1);
-
-		$this->commentBlockData[] = $comment;
+		
+		return $comment;
 	}
 	
 	// ==============================================================
@@ -464,27 +468,29 @@ class GifManipulator
 	 */
 	protected function parsePlainTextExtension()
 	{
-		$this->plainTextBlockData = new stdClass;
-		$this->plainTextBlockData->extensionIntroducer  = $this->getBytes(1);
-		$this->plainTextBlockData->plainTextLabel       = $this->getBytes(1);
-		$this->plainTextBlockData->blockSize            = $this->getBytes(1);
+		$plainText = new stdClass;
+		$plainText->extensionIntroducer  = $this->getBytes(1);
+		$plainText->plainTextLabel       = $this->getBytes(1);
+		$plainText->blockSize            = $this->getBytes(1);
 		
-		list(, $this->plainTextBlockData->textGridLeftPosition) = unpack("v", $this->getBytes(2));
-		list(, $this->plainTextBlockData->textGridTopPosition)  = unpack("v", $this->getBytes(2));
-		list(, $this->plainTextBlockData->textGridTopWidth)     = unpack("v", $this->getBytes(2));
-		list(, $this->plainTextBlockData->textGridTopHeight)    = unpack("v", $this->getBytes(2));
+		list(, $plainText->textGridLeftPosition) = unpack("v", $this->getBytes(2));
+		list(, $plainText->textGridTopPosition)  = unpack("v", $this->getBytes(2));
+		list(, $plainText->textGridTopWidth)     = unpack("v", $this->getBytes(2));
+		list(, $plainText->textGridTopHeight)    = unpack("v", $this->getBytes(2));
 		
-		$this->plainTextBlockData->characterCellWidth        = ord($this->getBytes(1));
-		$this->plainTextBlockData->characterCellHeight       = ord($this->getBytes(1));
-		$this->plainTextBlockData->textForegroundColorIndex  = ord($this->getBytes(1));
-		$this->plainTextBlockData->textBackgroundColorIndex  = ord($this->getBytes(1));
-        
-		$this->plainTextBlockData->plainTextData = "";
+		$plainText->characterCellWidth        = ord($this->getBytes(1));
+		$plainText->characterCellHeight       = ord($this->getBytes(1));
+		$plainText->textForegroundColorIndex  = ord($this->getBytes(1));
+		$plainText->textBackgroundColorIndex  = ord($this->getBytes(1));
+		
+		$plainText->plainTextData = "";
 		while ( ($byte = $this->getBytes(1)) !== "\x00" )
 		{
-			$this->plainTextBlockData->plainTextData .= $byte;
+			$plainText->plainTextData .= $byte;
 		}
-		$this->plainTextBlockData->blockTerminator = $byte;
+		$plainText->blockTerminator = $byte;
+		
+		return $plainText;
 	}
 	
 	
@@ -741,13 +747,13 @@ class GifManipulator
 		do
 		{
 			// parse other extension each section ended
-			if ( empty($stackBody) )
+			if ( $stackBody === '' )
 			{
-				$this->parseOtherExtensions();
+				// trick: loop call returns bool
+				while ( $this->parseOtherExtensions() ) ;
 			}
 			
-			$temp = $this->getBytes(3, FALSE);
-			if ( $temp !== self::MULTIPLE_IMAGE_SEPARATOR )
+			if ( $this->getBytes(3, FALSE) !== self::MULTIPLE_IMAGE_SEPARATOR )
 			{
 				$stackBody .= $this->getBytes(1);
 				continue;
@@ -762,10 +768,10 @@ class GifManipulator
 			$img = new stdClass;
 			$img->graphicControlExtension = $this->parseGraphicControlExtension();
 			
-			$this->parseOtherExtensions();
+			while ( $this->parseOtherExtensions() ) ;
 			
-			$img->body = "";
-			$img->imageSeparator    = bin2hex($this->getBytes(1));
+			$img->body                      = "";
+			$img->imageSeparator            = bin2hex($this->getBytes(1));
 			list(, $img->imageLeftPosition) = unpack("v", $this->getBytes(2));
 			list(, $img->imageTopPosition)  = unpack("v", $this->getBytes(2));
 			list(, $img->imageWidth)        = unpack("v", $this->getBytes(2));
@@ -1054,25 +1060,25 @@ class GifManipulator
 			$dest   = imagecreatetruecolor($width, $height);
 			
 			// image has transparency?
-			if ( $imageDescriptor->graphicControlExtension->transparencyFlag )
-			{
-				$trans = imagecolorallocate($dest, 255, 255, 255);
-				//// Use local color table if exists
-                //$colors = ( isset($imageDescriptor->localColors[$imageDescriptor->graphicControlExtension->transparencyIndex]) )
-				//            ? $imageDescriptor->localColors
-				//            : $this->globalColors;
-				//$color = $colors[$imageDescriptor->graphicControlExtension->transparencyIndex];
-				//$trans = imagecolorallocate($dest, $color->red, $color->green, $color->blue);
-			}
-			else
-			{
-				$trans = imagecolorallocate($dest, 255, 255, 255);
-			}
+			$trans = imagecolorallocate($dest, 255, 255, 255);
+			//if ( $imageDescriptor->graphicControlExtension->transparencyFlag )
+			//{
+			//	// Use local color table if exists
+            //    $colors = ( count($imageDescriptor->localColors) > 0 )
+			//	            ? $imageDescriptor->localColors
+			//	            : $this->globalColors;
+			//	$color = $colors[$imageDescriptor->graphicControlExtension->transparencyIndex];
+			//	$trans = imagecolorallocate($dest, $color->red, $color->green, $color->blue);
+			//}
+			//else
+			//{
+			//	$trans = imagecolorallocate($dest, 255, 255, 255);
+			//}
 			
 			// make image from GD functions
 			imagecolortransparent($dest, $trans);
 			imagefill($dest, 0, 0, $trans);
-			imagecopyresampled($dest, $gd, 0, 0, 0, 0, 
+			imagecopyresampled($dest, $gd, 0, 0, 0, 0,
 			                  $width, $height, $imageDescriptor->imageWidth, $imageDescriptor->imageHeight);
 			
 			// Get binary buffer
@@ -1094,8 +1100,8 @@ class GifManipulator
 			$id->graphicControlExtension->delayTime      = $imageDescriptor->graphicControlExtension->delayTime;
 			
 			// set new postion
-			$id->imageTopPosition        = (int)$top;  // double to int
-			$id->imageLeftPosition       = (int)$left; // double to int
+			$id->imageTopPosition  = (int)$top;  // double to int
+			$id->imageLeftPosition = (int)$left; // double to int
 			
 			// release image resouces
 			imagedestroy($gd);
